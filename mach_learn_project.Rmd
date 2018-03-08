@@ -1,0 +1,225 @@
+---
+title: "Machine Learning Project"
+author: "Ionas Kelepouris"
+date: "8 March 2018"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+---
+
+```{r setup , echo = FALSE , include = FALSE}
+knitr::opts_chunk$set(echo = TRUE , warning = FALSE , error = FALSE)
+```
+
+# I. Introduction
+
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har
+
+
+# II. Background
+
+
+The main goal of the project is to predict the manner in which 6 participants performed some exercise as described below. This is the "classe" variable in the training set. The machine learning algorithm described here is applied to the 20 test cases available in the test data and the predictions are submitted in appropriate format to the Course Project Prediction Quiz for automated grading.
+
+
+# Data Loading and Exploratory Analysis
+
+## a) Dataset
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from http://groupware.les.inf.puc-rio.br/har. Full source:
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. "Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13)". Stuttgart, Germany: ACM SIGCHI, 2013.
+
+## b) Used Libraries
+
+First, we load the libraries and and we set the working direction.
+
+```{r , results = FALSE , message = FALSE}
+library(knitr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(randomForest)
+library(corrplot)
+```
+
+## c) Data Loading and Cleaning
+
+```{r}
+# Download the datasets
+
+training = read.csv('pml-training.csv')
+testing = read.csv('pml-testing.csv')
+
+# Create Partitions from the training dataset
+set.seed(111)
+inTrain = createDataPartition(training$classe , p = 0.7 , list = FALSE)
+
+train_set = training[inTrain , ]
+test_set = training[-inTrain , ]
+
+```
+
+
+In our case 70% of the data available will be used in the **train_set** variable and 30% in the **test set**. There are 13737 observations in our training set and 5885 in the test set and they both have 160 variables. There are a few variables with a lot of missing values that can be removed.
+
+```{r , message = FALSE}
+qplot(sapply(train_set ,function(x) sum(is.na(x))) , xlab = "Number of NA's" , ylab = 'Variables' , main = 'Missing Values')
+```
+
+There are a lot of variables with **13449** missing values. So we exclude them.
+
+```{r}
+most_na = sapply(train_set , function(x) sum(is.na(x))) > 13000
+train_set = train_set[ , most_na == FALSE]
+test_set = test_set[ , most_na == FALSE]
+```
+
+Now we have **93 variables**.
+
+We also want to exclude the near zero variance variables.
+
+```{r}
+near_zero_variables = nearZeroVar(train_set)
+
+train_set = train_set[ , -near_zero_variables]
+test_set = test_set[ , -near_zero_variables]
+```
+
+We also remove our identification variables which are the 5 first columns.
+
+```{r}
+train_set = train_set[ , -(1:5)]
+test_set = test_set[, -(1:5)]
+```
+
+And now we have **54 variables** we can use for our predictive model.
+
+## d) Variables Correlation
+
+We put our variables' correlation in 53x53 matrix (we exclude our "classe" variable). When we plot the density of the correlations it is obvious are variables are not significantly correlated.
+
+```{r}
+correl = cor(train_set[ , -54])
+
+# We set our diagonial values to NA values. Our diagonial values are all equal to 1.
+
+diag(correl) = NA
+plot(density(correl , na.rm = TRUE) , main = 'Correlation Between the Variables')
+polygon(density(correl , na.rm = TRUE) , col = 'lightblue')
+abline(v = -0.35 , col = 'darkblue') ; abline(v = 0.35 , col = 'darkblue')
+```
+
+To make an evem more compact analysis, a PCA (Principal Components Analysis) could be performed as pre-processing step to the datasets. Nevertheless, as the plot indicates the correlations are quite few, this step will not be applied for this assignment.
+
+# IV. Prediction Models
+
+We will apply three methods to model the regression in training set and the one with the best accuracy will be submitted to the final quiz. The methods are: Random Forests, Decision Tree and Generalized Boosted Model, as described below.
+
+A Confusion Matrix is plotted at the end of each analysis to better visualize the accuracy of the models.
+
+
+## a) Random Forest
+
+```{r}
+# Model Fit
+
+set.seed(111)
+control_rf = trainControl(method = 'cv' , number = 5)
+modfit_rf = train(classe ~ . , data = train_set , method = 'rf' , trControl = control_rf)
+modfit_rf$finalModel
+```
+
+
+```{r}
+# Prediction on test set
+
+predictRandomForest = predict(modfit_rf , test_set)
+confmat_rf = confusionMatrix(predictRandomForest , test_set$classe)
+confmat_rf
+```
+
+```{r}
+# Plot Matrix Results
+
+plot(confmat_rf$table , confmat_rf$byClass , main = paste('Random Forest - Accuracy =' , round(confmat_rf$overall[1] , 4)) , col = 'lightgreen')
+```
+
+
+## b) Decision Trees
+
+```{r}
+# Model Fit
+
+set.seed(111)
+modfit_dt = rpart(classe ~ . , data = train_set , method = 'class')
+
+# Prediction on test set
+
+predictDecisionTree = predict(modfit_dt , test_set , type = 'class')
+confmat_dt = confusionMatrix(predictDecisionTree , test_set$classe)
+confmat_dt
+```
+
+```{r}
+# Plot Matrix results
+
+plot(confmat_dt$table , confmat_dt$byClass , main = paste('Decision Tree - Accuracy =' , round(confmat_dt$overall[1] , 4)) , col = 'lightblue1')
+```
+
+
+## c) Generalized Boosted Model
+
+```{r , message = FALSE , results = FALSE}
+# Model Fit
+
+set.seed(111)
+control_gbm = trainControl(method = 'repeatedcv' , repeats = 1 , number = 5)
+modfit_gbm = train(classe ~ . , data = train_set , method = 'gbm' , trControl = control_gbm , verbose = FALSE)
+```
+```{r}
+modfit_gbm$finalModel
+```
+
+```{r}
+# Prediction on test set
+
+predictGenBoostedModel = predict(modfit_gbm , test_set)
+confmat_gbm = confusionMatrix(predictGenBoostedModel , test_set$classe)
+confmat_gbm
+```
+
+```{r}
+# Plot Matrix Results
+
+plot(confmat_gbm$table , confmat_gbm$byClass , main = paste('Generalized Boosted Model - Accuracy =' , round(confmat_gbm$overall[1] , 4)) , col = "lightyellow3")
+```
+
+
+# Applying the selected model to the test set
+
+The accuracy of the three predictive models above are:
+
+- Random Forest                 :   **0.9964**
+- Decision Trees                :   0.7322
+- Generalized Boosted Models    :   0.9873
+
+
+Random Forest give us the best accuracy possible and we will use for the testing dataset prediction
+
+```{r}
+predict_test_with_random_forest = predict(modfit_rf , newdata = testing)
+predict_test_with_random_forest
+```
+
